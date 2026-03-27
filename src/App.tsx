@@ -18,6 +18,8 @@ function App() {
   const [content, setContent] = useState("");
   const editorRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     axios
@@ -77,8 +79,68 @@ function App() {
         "http://127.0.0.1:8000/api/articles",
       );
       setArticles(res.data);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      if (err.response?.status === 422) {
+        setError(err.response.data.message || "Invalid input");
+      } else {
+        console.error(err);
+      }
+    }
+  };
+
+  const startEdit = (article: Article) => {
+    setEditingId(article.id);
+    setTitle(article.title);
+    setContent(article.content);
+
+    if (quillRef.current) {
+      quillRef.current.root.innerHTML = article.content;
+    }
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const updateArticle = async () => {
+    const isContentEmpty =
+      !content ||
+      content === "<p><br></p>" ||
+      content.replace(/<(.|\n)*?>/g, "").trim() === "";
+
+    if (!title.trim() || isContentEmpty) {
+      setError("Title and content are required");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      await axios.put(`http://127.0.0.1:8000/api/articles/${editingId}`, {
+        title,
+        content,
+      });
+
+      setEditingId(null);
+      setTitle("");
+      setContent("");
+
+      if (quillRef.current) {
+        quillRef.current.setText("");
+      }
+
+      const res = await axios.get<Article[]>(
+        "http://127.0.0.1:8000/api/articles",
+      );
+      setArticles(res.data);
+
+      setLoading(false);
+    } catch (err: any) {
+      setLoading(false);
+
+      if (err.response?.status === 422) {
+        setError(err.response.data.message || "Invalid input");
+      } else {
+        console.error(err);
+      }
     }
   };
 
@@ -95,8 +157,8 @@ function App() {
 
   return (
     <div className="container mt-5">
-      {error && <div className="alert alert-danger">{error}</div>}
       <h1 className="text-center mb-5 fw-bold">📰 Latest Articles</h1>
+      {error && <div className="alert alert-danger">{error}</div>}
 
       <div className="card mb-4 p-3 shadow">
         <h4>Create Article</h4>
@@ -113,8 +175,12 @@ function App() {
 
         <div ref={editorRef} className="mb-3" />
 
-        <button className="btn btn-primary" onClick={createArticle}>
-          Add Article
+        <button
+          className="btn btn-primary"
+          onClick={editingId ? updateArticle : createArticle}
+          disabled={loading}
+        >
+          {loading ? "Saving..." : editingId ? "Update Article" : "Add Article"}
         </button>
       </div>
 
@@ -128,6 +194,25 @@ function App() {
               dangerouslySetInnerHTML={{ __html: article.content }}
             />
           </div>
+          <button
+            className="btn btn-secondary me-2 mt-3"
+            onClick={() => startEdit(article)}
+          >
+            Edit
+          </button>
+          {editingId && (
+            <button
+              className="btn btn-secondary mt-2"
+              onClick={() => {
+                setEditingId(null);
+                setTitle("");
+                setContent("");
+                if (quillRef.current) quillRef.current.setText("");
+              }}
+            >
+              Cancel Edit
+            </button>
+          )}
           <button
             className="btn btn-danger my-3"
             onClick={() => deleteArticle(article.id)}
